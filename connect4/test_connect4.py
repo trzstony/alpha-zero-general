@@ -49,7 +49,8 @@ def test_overfull_column():
         try:
             init_board_from_moves([4] * (height + 1), height=height)
             assert False, "Expected error when overfilling column"
-        except ValueError:
+        except ValueError as e:
+            print(e)
             pass  # Expected.
 
 

@@ -34,7 +34,7 @@ class HumanOthelloPlayer():
                         a = self.game.n * x + y if x != -1 else self.game.n ** 2
                         if valid[a]:
                             break
-                except ValueError:
+                except ValueError as e:
                     # Input needs to be an integer
                     'Invalid integer'
             print('Invalid move')

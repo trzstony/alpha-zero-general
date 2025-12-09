@@ -1,10 +1,19 @@
 """
-Main training script for Rewrite Puzzle game using AlphaZero.
+Main training script for Rewrite Puzzle game using AlphaZero (single-player version).
+This script uses the ReG (single-player) versions of Coach, MCTS, and Arena.
 """
 
 import logging
+import sys
+import os
 
-from Coach import Coach
+# Add parent directory to path to access Game.py and utils.py
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# Import using package-style imports to support relative imports in RewritePuzzleGame
+from rewrite_puzzle.ReG_Coach import Coach
 from rewrite_puzzle.RewritePuzzleGame import RewritePuzzleGame as Game
 from rewrite_puzzle.pytorch.NNet import NNetWrapper as nn
 from utils import *
@@ -60,4 +69,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

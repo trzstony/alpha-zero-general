@@ -153,8 +153,8 @@ class Coach():
                 
                 if improvement >= (self.args.updateThreshold - 0.5):  # Adjust threshold for single-player
                     log.info('ACCEPTING NEW MODEL (improvement: %.2f%%)' % (improvement * 100))
-                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
-                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+                    self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
+                    self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
                 else:
                     log.info('REJECTING NEW MODEL (improvement too small: %.2f%%)' % (improvement * 100))
                     self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')

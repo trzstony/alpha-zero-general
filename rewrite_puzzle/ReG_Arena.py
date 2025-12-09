@@ -47,8 +47,8 @@ class Arena():
         it = 0
 
         # Notify player of game start
-            if hasattr(player, "startGame"):
-                player.startGame()
+        if hasattr(player, "startGame"):
+            player.startGame()
 
         # For single-player games, player is always 1
         curPlayer = 1

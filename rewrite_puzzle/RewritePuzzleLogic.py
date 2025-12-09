@@ -258,7 +258,17 @@ class RewriteRule:
 
 
 class RewritePuzzleBoard:
-    """Board state for the rewrite puzzle game."""
+    """Board state for the rewrite puzzle game (single-player).
+    
+    This class manages the game state for a single-player puzzle game where
+    the player rewrites expressions to match a goal. It is designed to work
+    with single-player MCTS (ReG_MCTS.py) which does not negate values and
+    always uses player=1.
+    
+    The game ends when:
+    - The puzzle is solved (is_solved() returns True) -> WIN
+    - Maximum steps are reached without solving -> LOSS
+    """
     def __init__(self, start_expr, goal_expr, max_steps=20):
         self.current_expr = start_expr.copy() if isinstance(start_expr, ExpressionNode) else self._parse_expr(start_expr)
         # Handle goal_expr - can be a number or expression
@@ -350,13 +360,21 @@ class RewritePuzzleBoard:
         """Initialize the set of rewrite rules."""
         rules = []
         # a + 0 -> a
-        # rules.append(RewriteRule("add_zero_left", "a + 0", "a"))
-        # # 0 + a -> a
-        # rules.append(RewriteRule("add_zero_right", "0 + a", "a"))
-        # # a * 1 -> a
+        rules.append(RewriteRule("add_zero_left", "a + 0", "a"))
+        # 0 + a -> a
+        rules.append(RewriteRule("add_zero_right", "0 + a", "a"))
+        # a * 1 -> a
         rules.append(RewriteRule("mult_one_left", "a * 1", "a"))
         # 1 * a -> a
         rules.append(RewriteRule("mult_one_right", "1 * a", "a"))
+        # a -> a + 0
+        rules.append(RewriteRule("expand_add_zero_right", "a", "a + 0"))
+        # a -> 0 + a
+        rules.append(RewriteRule("expand_add_zero_left", "a", "0 + a"))
+        # a -> a * 1
+        rules.append(RewriteRule("expand_mult_one_right", "a", "a * 1"))
+        # a -> 1 * a
+        rules.append(RewriteRule("expand_mult_one_left", "a", "1 * a"))
         # a + b -> b + a (commutativity)
         rules.append(RewriteRule("commute_add", "a + b", "b + a", is_commutative=True))
         # a + (b + c) -> (a + b) + c (associativity)
@@ -394,7 +412,19 @@ class RewritePuzzleBoard:
         return rules
     
     def get_all_valid_actions(self):
-        """Get all valid (rule, location) pairs that can be applied."""
+        """Get all valid (rule, location) pairs that can be applied.
+        
+        This method is used by MCTS (via RewritePuzzleGame.getValidMoves) to
+        determine which actions are legal from the current state. In a single-player
+        game, all valid actions are from the perspective of the single player.
+        
+        Returns:
+            List of tuples (rule_idx, path) representing valid actions
+        """
+        # If game is terminal, no valid actions (though MCTS should check this first)
+        if self.is_terminal():
+            return []
+            
         valid_actions = []
         all_nodes = self.current_expr.get_all_subexpressions()
         
@@ -403,8 +433,9 @@ class RewritePuzzleBoard:
                 if rule.matches(node):
                     # Find the path to this node
                     path = self._find_path_to_node(self.current_expr, node)
-                    action = (rule_idx, path)
-                    valid_actions.append(action)
+                    if path is not None:  # Ensure path was found
+                        action = (rule_idx, path)
+                        valid_actions.append(action)
         
         return valid_actions
     
@@ -423,14 +454,29 @@ class RewritePuzzleBoard:
         return None
     
     def apply_action(self, rule_idx, path):
-        """Apply a rewrite rule at a specific location."""
+        """Apply a rewrite rule at a specific location (single-player action).
+        
+        This method is called by MCTS (via RewritePuzzleGame.getNextState) to
+        apply actions during tree search. It increments steps_taken even if
+        the action doesn't change the state (to prevent infinite loops).
+        
+        Args:
+            rule_idx: Index of the rewrite rule to apply
+            path: Path to the node in the expression tree where the rule should be applied
+            
+        Returns:
+            True if the action was successfully applied, False otherwise
+        """
+        # Check if game is already terminal (shouldn't happen in MCTS, but safety check)
+        if self.is_terminal():
+            return False
+            
         if rule_idx >= len(self.rules):
             return False
             
         rule = self.rules[rule_idx]
         node = self._get_node_at_path(self.current_expr, path)
         
-        # print(rule.matches(node))
         if node is None:
             return False
         
@@ -444,7 +490,7 @@ class RewritePuzzleBoard:
         
         # Replace the node - this creates a new root with the replacement
         new_expr = self._replace_node(self.current_expr, path, replacement)
-        # print(new_expr)
+        
         # Update the expression (replacement is guaranteed to be different if we got here)
         self.current_expr = new_expr
         self.steps_taken += 1
@@ -494,6 +540,9 @@ class RewritePuzzleBoard:
         evaluation equality. For example, "1 + 2" and "3" evaluate to the same
         value but are not literally equal.
         
+        This is used by MCTS (via RewritePuzzleGame.getGameEnded) to determine
+        if the single-player puzzle has been solved (win condition).
+        
         Returns:
             True if current_expr literally matches goal_expr (same structure and values),
             False otherwise
@@ -516,14 +565,43 @@ class RewritePuzzleBoard:
             return False
     
     def is_terminal(self):
-        """Check if the game has ended."""
+        """Check if the game has ended (single-player game).
+        
+        The game ends when either:
+        1. The puzzle is solved (is_solved() returns True) - WIN
+        2. Maximum steps are reached without solving - LOSS
+        
+        This is used by MCTS (via RewritePuzzleGame.getGameEnded) to determine
+        terminal states. For single-player games:
+        - Terminal + solved = WIN (returns 1)
+        - Terminal + not solved = LOSS (returns -1)
+        - Not terminal = ongoing (returns 0)
+        
+        Returns:
+            True if the game has ended (solved or max steps reached), False otherwise
+        """
         return self.is_solved() or self.steps_taken >= self.max_steps
     
     def get_reward(self):
-        """Get the reward for the current state."""
+        """Get the reward for the current state (single-player game).
+        
+        Note: This method is not directly used by MCTS. MCTS uses getGameEnded()
+        from RewritePuzzleGame which calls is_solved() and is_terminal().
+        
+        This method may be used by other parts of the system (e.g., training).
+        For compatibility with single-player MCTS:
+        - Solved state should have positive reward (1.0)
+        - Loss state should have negative or zero reward (0.0 or -1.0)
+        - Ongoing state should have neutral reward (0.0)
+        
+        Returns:
+            float: Reward value (1.0 for solved, 0.0 for loss/ongoing)
+        """
         if self.is_solved():
             return 1.0
         elif self.steps_taken >= self.max_steps:
+            # Loss condition: max steps reached without solving
+            # Using 0.0 for loss (could also use -1.0 for consistency with MCTS)
             return 0.0
         return 0.0
 

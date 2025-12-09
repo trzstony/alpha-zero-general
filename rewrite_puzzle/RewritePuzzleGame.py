@@ -1,6 +1,10 @@
 """
 Game class implementation for the Rewrite Puzzle game.
 This is a single-player puzzle game where you rewrite expressions to match a goal.
+
+This class implements the Game interface required by the AlphaZero framework,
+adapted for single-player games. It works with ReG_MCTS.py (single-player MCTS)
+which does not negate values and always uses player=1.
 """
 
 from __future__ import print_function
@@ -12,6 +16,15 @@ import numpy as np
 
 
 class RewritePuzzleGame(Game):
+    """
+    Single-player puzzle game interface for AlphaZero framework.
+    
+    This class bridges the game logic (RewritePuzzleLogic) with the AlphaZero
+    framework. It is designed to work with single-player MCTS (ReG_MCTS.py) which:
+    - Does not negate values when propagating up the tree
+    - Always uses player=1 (no player alternation)
+    - Expects getGameEnded() to return: 1 for win, -1 for loss, 0 for ongoing
+    """
     def __init__(self, start_expr="1 + 2 * 3", goal_expr=7, max_steps=20, max_expr_length=200):
         """
         Initialize the rewrite puzzle game.
@@ -26,10 +39,10 @@ class RewritePuzzleGame(Game):
         self.goal_expr = goal_expr
         self.max_steps = max_steps
         self.max_expr_length = max_expr_length
-        self.num_rules = 7  # Number of rewrite rules (updated to match actual rule count)
         
         # Initialize the board
         self.board = RewritePuzzleBoard(start_expr, goal_expr, max_steps)
+        self.num_rules = len(self.board.rules)  # Get actual number of rules from logic
         
     def getInitBoard(self):
         """Returns initial board state as a numpy array."""
@@ -51,8 +64,19 @@ class RewritePuzzleGame(Game):
     
     def getNextState(self, board, player, action):
         """
-        Returns next state after applying action.
-        Note: This is a single-player game, so player alternation is not meaningful.
+        Returns next state after applying action (single-player game).
+        
+        This method is called by MCTS during tree search. For single-player games,
+        the player parameter is always 1 (as used by ReG_MCTS), but the framework
+        expects player alternation, so we return -player for compatibility.
+        
+        Args:
+            board: Current board state (numpy array)
+            player: Current player (always 1 for single-player, but kept for framework compatibility)
+            action: Action to apply (encoded as rule_idx * max_positions + position_idx)
+            
+        Returns:
+            tuple: (new_board, next_player) where next_player is -player for framework compatibility
         """
         # Decode board state
         board_obj = self._decode_state(board)
@@ -104,7 +128,20 @@ class RewritePuzzleGame(Game):
         return (new_board, -player)
     
     def getValidMoves(self, board, player):
-        """Returns binary vector of valid moves."""
+        """
+        Returns binary vector of valid moves (single-player game).
+        
+        This method is called by MCTS (ReG_MCTS) to determine which actions are
+        legal from the current state. For single-player games, the player parameter
+        is always 1, but kept for framework compatibility.
+        
+        Args:
+            board: Current board state (numpy array)
+            player: Current player (always 1 for single-player)
+            
+        Returns:
+            numpy array: Binary vector where 1 indicates a valid action, 0 indicates invalid
+        """
         board_obj = self._decode_state(board)
         valid_actions = board_obj.get_all_valid_actions()
         
@@ -126,10 +163,23 @@ class RewritePuzzleGame(Game):
     
     def getGameEnded(self, board, player):
         """
+        Check if the game has ended (single-player game).
+        
+        This method is called by MCTS (ReG_MCTS) to determine terminal states.
+        For single-player MCTS compatibility:
+        - Returns 1 if puzzle is solved (WIN)
+        - Returns -1 if max steps reached without solving (LOSS)
+        - Returns 0 if game is still ongoing
+        
+        The player parameter is always 1 for single-player games, but kept for
+        framework compatibility.
+        
+        Args:
+            board: Current board state (numpy array)
+            player: Current player (always 1 for single-player)
+            
         Returns:
-            0 if game not ended
-            1 if player won (solved the puzzle)
-            -1 if player lost (max steps reached without solving)
+            int: 0 if game not ended, 1 if won, -1 if lost
         """
         board_obj = self._decode_state(board)
         
@@ -140,7 +190,20 @@ class RewritePuzzleGame(Game):
         return 0
     
     def getCanonicalForm(self, board, player):
-        """Returns canonical form of board (same for single-player game)."""
+        """
+        Returns canonical form of board (single-player game).
+        
+        For single-player games, there's no need to transform the board based on
+        player perspective, so we return the board as-is. This method is called
+        by MCTS to normalize states.
+        
+        Args:
+            board: Current board state (numpy array)
+            player: Current player (always 1 for single-player)
+            
+        Returns:
+            numpy array: Canonical form of the board (same as input for single-player)
+        """
         return board
     
     def getSymmetries(self, board, pi):
@@ -150,7 +213,18 @@ class RewritePuzzleGame(Game):
         return [(board, pi)]
     
     def stringRepresentation(self, board):
-        """Returns string representation for hashing."""
+        """
+        Returns string representation for hashing (used by MCTS).
+        
+        This method is called by MCTS to create a unique hash key for each game state.
+        This is used to cache visited states during tree search.
+        
+        Args:
+            board: Current board state (numpy array)
+            
+        Returns:
+            str: String representation of the board state for hashing
+        """
         board_obj = self._decode_state(board)
         return str(board_obj.current_expr) + "|" + str(board_obj.goal_expr) + "|" + str(board_obj.steps_taken)
     

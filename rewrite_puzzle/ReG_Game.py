@@ -1,12 +1,20 @@
 class Game():
     """
     This class specifies the base Game class. To define your own game, subclass
-    this class and implement the functions below. This works when the game is
-    two-player, adversarial and turn-based.
+    this class and implement the functions below.
+    
+    This base class supports both two-player adversarial games and single-player
+    puzzle games. For single-player games:
+    - Player is always 1 (no alternation)
+    - getGameEnded() returns: 1 for win (solved), -1 for loss, 0 for ongoing
+    - Values are not negated based on player perspective
+    
+    For two-player games:
+    - Use 1 for player1 and -1 for player2
+    - Values are negated when switching players
 
-    Use 1 for player1 and -1 for player2.
-
-    See othello/OthelloGame.py for an example implementation.
+    See othello/OthelloGame.py for a two-player example.
+    See rewrite_puzzle/RewritePuzzleGame.py for a single-player example.
     """
     def __init__(self):
         pass

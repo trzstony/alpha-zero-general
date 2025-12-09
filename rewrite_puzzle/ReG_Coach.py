@@ -8,16 +8,19 @@ from random import shuffle
 import numpy as np
 from tqdm import tqdm
 
-from Arena import Arena
-from MCTS import MCTS
+from ReG_Arena import Arena
+from ReG_MCTS import MCTS
 
 log = logging.getLogger(__name__)
 
 
 class Coach():
     """
-    This class executes the self-play + learning. It uses the functions defined
-    in Game and NeuralNet. args are specified in main.py.
+    This class executes the self-play + learning for single-player games.
+    
+    It uses the functions defined in Game and NeuralNet. args are specified in main.py.
+    For single-player games, the value assignment logic is simplified - values are
+    not negated based on player since there's only one player.
     """
 
     def __init__(self, game, nnet, args):
@@ -31,7 +34,8 @@ class Coach():
 
     def executeEpisode(self):
         """
-        This function executes one episode of self-play, starting with player 1.
+        This function executes one episode of self-play for a single-player game.
+        
         As the game is played, each turn is added as a training example to
         trainExamples. The game is played till the game ends. After the game
         ends, the outcome of the game is used to assign values to each example
@@ -40,33 +44,41 @@ class Coach():
         It uses a temp=1 if episodeStep < tempThreshold, and thereafter
         uses temp=0.
 
+        For single-player games:
+        - Player is always 1 (no alternation)
+        - Value v is the game result directly: +1 if solved (win), -1 if lost (max steps)
+        - No need to negate values based on player perspective
+
         Returns:
-            trainExamples: a list of examples of the form (canonicalBoard, currPlayer, pi,v)
+            trainExamples: a list of examples of the form (canonicalBoard, pi, v)
                            pi is the MCTS informed policy vector, v is +1 if
-                           the player eventually won the game, else -1.
+                           the puzzle was eventually solved, else -1.
         """
         trainExamples = []
         board = self.game.getInitBoard()
-        self.curPlayer = 1
+        # For single-player games, player is always 1
+        curPlayer = 1
         episodeStep = 0
 
         while True:
             episodeStep += 1
-            canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
+            canonicalBoard = self.game.getCanonicalForm(board, curPlayer)
             temp = int(episodeStep < self.args.tempThreshold)
 
             pi = self.mcts.getActionProb(canonicalBoard, temp=temp)
             sym = self.game.getSymmetries(canonicalBoard, pi)
             for b, p in sym:
-                trainExamples.append([b, self.curPlayer, p, None])
+                trainExamples.append([b, p, None])
 
             action = np.random.choice(len(pi), p=pi)
-            board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
+            board, curPlayer = self.game.getNextState(board, curPlayer, action)
 
-            r = self.game.getGameEnded(board, self.curPlayer)
+            r = self.game.getGameEnded(board, curPlayer)
 
             if r != 0:
-                return [(x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer))) for x in trainExamples]
+                # For single-player games, assign the result directly (no negation)
+                # r is already 1 for win, -1 for loss
+                return [(x[0], x[1], r) for x in trainExamples]
 
     def learn(self):
         """
@@ -114,18 +126,38 @@ class Coach():
             nmcts = MCTS(self.game, self.nnet, self.args)
 
             log.info('PITTING AGAINST PREVIOUS VERSION')
-            arena = Arena(lambda x: np.argmax(pmcts.getActionProb(x, temp=0)),
-                          lambda x: np.argmax(nmcts.getActionProb(x, temp=0)), self.game)
-            pwins, nwins, draws = arena.playGames(self.args.arenaCompare)
+            # For single-player games, we compare how many puzzles each model solves
+            # Test previous model
+            arena_prev = Arena(lambda x: np.argmax(pmcts.getActionProb(x, temp=0)),
+                              lambda x: None, self.game)  # player2 not used
+            prev_solved, prev_lost, prev_draws = arena_prev.playGames(self.args.arenaCompare)
+            
+            # Test new model
+            arena_new = Arena(lambda x: np.argmax(nmcts.getActionProb(x, temp=0)),
+                             lambda x: None, self.game)  # player2 not used
+            new_solved, new_lost, new_draws = arena_new.playGames(self.args.arenaCompare)
 
-            log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (nwins, pwins, draws))
-            if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
-                log.info('REJECTING NEW MODEL')
+            log.info('PREV/NEW SOLVED : %d / %d ; PREV/NEW LOST : %d / %d' % 
+                    (prev_solved, new_solved, prev_lost, new_lost))
+            
+            # Accept new model if it solves more puzzles (or same but fewer losses)
+            total_games = prev_solved + prev_lost + prev_draws
+            if total_games == 0:
+                log.info('REJECTING NEW MODEL (no games played)')
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             else:
-                log.info('ACCEPTING NEW MODEL')
+                # Calculate win rate (solved / total)
+                prev_win_rate = prev_solved / total_games if total_games > 0 else 0
+                new_win_rate = new_solved / total_games if total_games > 0 else 0
+                improvement = new_win_rate - prev_win_rate
+                
+                if improvement >= (self.args.updateThreshold - 0.5):  # Adjust threshold for single-player
+                    log.info('ACCEPTING NEW MODEL (improvement: %.2f%%)' % (improvement * 100))
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+                else:
+                    log.info('REJECTING NEW MODEL (improvement too small: %.2f%%)' % (improvement * 100))
+                    self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
 
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pth.tar'

@@ -7,110 +7,108 @@ log = logging.getLogger(__name__)
 
 class Arena():
     """
-    An Arena class where any 2 agents can be pit against each other.
+    An Arena class for single-player games.
+    
+    For single-player games, this evaluates how well a player performs
+    (solved vs not solved) rather than pitting two players against each other.
     """
 
     def __init__(self, player1, player2, game, display=None):
         """
         Input:
-            player 1,2: two functions that takes board as input, return action
-            game: Game object
+            player1: function that takes board as input, returns action (primary player)
+            player2: function that takes board as input, returns action (for compatibility, 
+                     but not used in single-player games)
+            game: Game object (single-player game)
             display: a function that takes board as input and prints it (e.g.
-                     display in othello/OthelloGame). Is necessary for verbose
-                     mode.
+                     display in RewritePuzzleGame). Is necessary for verbose mode.
 
-        see othello/OthelloPlayers.py for an example. See pit.py for pitting
-        human players/other baselines with each other.
+        Note: For single-player games, player2 is kept for interface compatibility
+        but only player1 is actually used.
         """
         self.player1 = player1
-        self.player2 = player2
+        self.player2 = player2  # Kept for compatibility, not used in single-player
         self.game = game
         self.display = display
 
     def playGame(self, verbose=False):
         """
-        Executes one episode of a game.
+        Executes one episode of a single-player game.
 
         Returns:
-            either
-                winner: player who won the game (1 if player1, -1 if player2)
-            or
-                draw result returned from the game that is neither 1, -1, nor 0.
+            int: Result of the game
+                - 1 if the puzzle was solved (WIN)
+                - -1 if max steps reached without solving (LOSS)
+                - 0 if game ended in a draw (should not happen in single-player)
         """
-        players = [self.player2, None, self.player1]
-        curPlayer = 1
+        # For single-player games, we only use player1
+        player = self.player1
         board = self.game.getInitBoard()
         it = 0
 
-        for player in players[0], players[2]:
+        # Notify player of game start
             if hasattr(player, "startGame"):
                 player.startGame()
+
+        # For single-player games, player is always 1
+        curPlayer = 1
 
         while self.game.getGameEnded(board, curPlayer) == 0:
             it += 1
             if verbose:
                 assert self.display
-                print("Turn ", str(it), "Player ", str(curPlayer))
+                print("Step ", str(it))
                 self.display(board)
-            action = players[curPlayer + 1](self.game.getCanonicalForm(board, curPlayer))
 
-            valids = self.game.getValidMoves(self.game.getCanonicalForm(board, curPlayer), 1)
+            canonicalBoard = self.game.getCanonicalForm(board, curPlayer)
+            action = player(canonicalBoard)
+
+            valids = self.game.getValidMoves(canonicalBoard, curPlayer)
 
             if valids[action] == 0:
                 log.error(f'Action {action} is not valid!')
                 log.debug(f'valids = {valids}')
                 assert valids[action] > 0
 
-            # Notifying the opponent for the move
-            opponent = players[-curPlayer + 1]
-            if hasattr(opponent, "notify"):
-                opponent.notify(board, action)
-
             board, curPlayer = self.game.getNextState(board, curPlayer, action)
 
-        for player in players[0], players[2]:
+        # Notify player of game end
             if hasattr(player, "endGame"):
                 player.endGame()
 
         if verbose:
             assert self.display
-            print("Game over: Turn ", str(it), "Result ", str(self.game.getGameEnded(board, 1)))
+            result = self.game.getGameEnded(board, curPlayer)
+            result_str = "SOLVED" if result == 1 else "LOST (max steps)"
+            print("Game over: Step ", str(it), "Result: ", result_str)
             self.display(board)
-        return curPlayer * self.game.getGameEnded(board, curPlayer)
+        
+        # For single-player games, return the result directly (1 for win, -1 for loss)
+        return self.game.getGameEnded(board, curPlayer)
 
     def playGames(self, num, verbose=False):
         """
-        Plays num games in which player1 starts num/2 games and player2 starts
-        num/2 games.
+        Plays num games with the single player.
+
+        For single-player games, this evaluates how many puzzles were solved
+        vs how many were lost (max steps reached).
 
         Returns:
-            oneWon: games won by player1
-            twoWon: games won by player2
-            draws:  games won by nobody
+            solved: number of games where the puzzle was solved (result == 1)
+            lost: number of games where max steps were reached without solving (result == -1)
+            draws: number of games that ended in a draw (should be 0 for single-player)
         """
-
-        num = int(num / 2)
-        oneWon = 0
-        twoWon = 0
+        solved = 0
+        lost = 0
         draws = 0
-        for _ in tqdm(range(num), desc="Arena.playGames (1)"):
+        
+        for _ in tqdm(range(num), desc="Arena.playGames"):
             gameResult = self.playGame(verbose=verbose)
             if gameResult == 1:
-                oneWon += 1
+                solved += 1
             elif gameResult == -1:
-                twoWon += 1
+                lost += 1
             else:
                 draws += 1
 
-        self.player1, self.player2 = self.player2, self.player1
-
-        for _ in tqdm(range(num), desc="Arena.playGames (2)"):
-            gameResult = self.playGame(verbose=verbose)
-            if gameResult == -1:
-                oneWon += 1
-            elif gameResult == 1:
-                twoWon += 1
-            else:
-                draws += 1
-
-        return oneWon, twoWon, draws
+        return solved, lost, draws

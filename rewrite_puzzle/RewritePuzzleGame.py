@@ -26,7 +26,7 @@ class RewritePuzzleGame(Game):
         self.goal_expr = goal_expr
         self.max_steps = max_steps
         self.max_expr_length = max_expr_length
-        self.num_rules = 7  # Number of rewrite rules (updated to match actual rule count)
+        self.num_rules = 8  # Number of rewrite rules (updated to match actual rule count)
         
         # Initialize the board
         self.board = RewritePuzzleBoard(start_expr, goal_expr, max_steps)

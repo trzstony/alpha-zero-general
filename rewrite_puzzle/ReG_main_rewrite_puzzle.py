@@ -26,10 +26,10 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 args = dotdict({
-    'numIters': 100,              # Number of training iterations
+    'numIters': 10,              # Number of training iterations
     'numEps': 50,                  # Number of complete self-play games per iteration
     'tempThreshold': 10,          # Temperature threshold for exploration
-    'updateThreshold': 0.55,       # Win rate threshold to accept new model
+    'updateThreshold': 0.51,       # Win rate threshold to accept new model
     'maxlenOfQueue': 20000,        # Maximum number of game examples in queue
     'numMCTSSims': 25,             # Number of MCTS simulations per move
     'arenaCompare': 20,            # Number of games for arena comparison
@@ -45,7 +45,7 @@ args = dotdict({
 def main():
     log.info('Loading %s...', Game.__name__)
     # Initialize game with a simple example
-    g = Game(start_expr="1 + (2 * 3)", goal_expr="(3 * 2) + 2", max_steps=20)
+    g = Game(start_expr="((1 + 2) + 3) + 4", goal_expr="1 + (2 + (3 + 4))", max_steps=20)
 
     log.info('Loading %s...', nn.__name__)
     nnet = nn(g)

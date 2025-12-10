@@ -302,4 +302,3 @@ class RewritePuzzleGame(Game):
         """Display the board state."""
         # This would need the game instance to decode properly
         print("Board state:", board)
-

@@ -23,7 +23,7 @@ class Coach():
     not negated based on player since there's only one player.
     """
 
-    def __init__(self, game, nnet, args):
+    def __init__(self, game, nnet, args, on_iteration_start=None):
         self.game = game
         self.nnet = nnet
         self.pnet = self.nnet.__class__(self.game)  # the competitor network
@@ -31,6 +31,7 @@ class Coach():
         self.mcts = MCTS(self.game, self.nnet, self.args)
         self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
         self.skipFirstSelfPlay = False  # can be overriden in loadTrainExamples()
+        self.on_iteration_start = on_iteration_start
 
     def executeEpisode(self):
         """
@@ -65,6 +66,13 @@ class Coach():
             canonicalBoard = self.game.getCanonicalForm(board, curPlayer)
             temp = int(episodeStep < self.args.tempThreshold)
 
+            # Check if game ended before MCTS
+            r = self.game.getGameEnded(board, curPlayer)
+            if r != 0:
+                # For single-player games, assign the result directly (no negation)
+                # r is already 1 for win, -1 for loss
+                return [(x[0], x[1], r) for x in trainExamples]
+
             pi = self.mcts.getActionProb(canonicalBoard, temp=temp)
             sym = self.game.getSymmetries(canonicalBoard, pi)
             for b, p in sym:
@@ -73,6 +81,7 @@ class Coach():
             action = np.random.choice(len(pi), p=pi)
             board, curPlayer = self.game.getNextState(board, curPlayer, action)
 
+            # Check if game ended after move (already checked above, but good for loop termination)
             r = self.game.getGameEnded(board, curPlayer)
 
             if r != 0:
@@ -92,6 +101,12 @@ class Coach():
         for i in range(1, self.args.numIters + 1):
             # bookkeeping
             log.info(f'Starting Iter #{i} ...')
+            
+            # Execute callback if provided
+            if self.on_iteration_start:
+                print(f"\n[Callback] Executing on_iteration_start...")
+                self.on_iteration_start(self.game, i)
+            
             print(f"\n{'='*60}")
             print(f"ITERATION {i}/{self.args.numIters}")
             print(f"{'='*60}")
@@ -99,15 +114,10 @@ class Coach():
             if not self.skipFirstSelfPlay or i > 1:
                 iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
-                print(f"\n[Step 1] Self-Play: Running {self.args.numEps} episodes...")
-                for episode_num in tqdm(range(self.args.numEps), desc="Self Play"):
+                for _ in tqdm(range(self.args.numEps), desc="Self Play"):
                     self.mcts = MCTS(self.game, self.nnet, self.args)  # reset search tree
-                    episode_examples = self.executeEpisode()
-                    iterationTrainExamples += episode_examples
-                    if (episode_num + 1) % 10 == 0:  # Print every 10 episodes
-                        print(f"  Episode {episode_num + 1}/{self.args.numEps}: Collected {len(episode_examples)} examples")
+                    iterationTrainExamples += self.executeEpisode()
 
-                print(f"[Step 1 Complete] Collected {len(iterationTrainExamples)} training examples from this iteration")
                 # save the iteration examples to the history 
                 self.trainExamplesHistory.append(iterationTrainExamples)
 
@@ -120,50 +130,37 @@ class Coach():
             self.saveTrainExamples(i - 1)
 
             # shuffle examples before training
-            print(f"\n[Step 2] Preparing training data...")
             trainExamples = []
             for e in self.trainExamplesHistory:
                 trainExamples.extend(e)
             shuffle(trainExamples)
-            print(f"  Total training examples: {len(trainExamples)}")
-            print(f"  Training examples from {len(self.trainExamplesHistory)} previous iterations")
 
             # training new network, keeping a copy of the old one
-            print(f"\n[Step 3] Saving previous model and training new network...")
             self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             pmcts = MCTS(self.game, self.pnet, self.args)
 
-            print(f"  Starting neural network training on {len(trainExamples)} examples...")
             self.nnet.train(trainExamples)
-            print(f"  Training complete!")
             nmcts = MCTS(self.game, self.nnet, self.args)
 
-            print(f"\n[Step 4] Comparing models in arena ({self.args.arenaCompare} games each)...")
             log.info('PITTING AGAINST PREVIOUS VERSION')
             # For single-player games, we compare how many puzzles each model solves
             # Test previous model
-            print(f"  Testing previous model...")
             arena_prev = Arena(lambda x: np.argmax(pmcts.getActionProb(x, temp=0)),
                               lambda x: None, self.game)  # player2 not used
             prev_solved, prev_lost, prev_draws = arena_prev.playGames(self.args.arenaCompare)
-            print(f"    Previous model: {prev_solved} solved, {prev_lost} lost, {prev_draws} draws")
             
             # Test new model
-            print(f"  Testing new model...")
             arena_new = Arena(lambda x: np.argmax(nmcts.getActionProb(x, temp=0)),
                              lambda x: None, self.game)  # player2 not used
             new_solved, new_lost, new_draws = arena_new.playGames(self.args.arenaCompare)
-            print(f"    New model: {new_solved} solved, {new_lost} lost, {new_draws} draws")
 
             log.info('PREV/NEW SOLVED : %d / %d ; PREV/NEW LOST : %d / %d' % 
                     (prev_solved, new_solved, prev_lost, new_lost))
             
             # Accept new model if it solves more puzzles (or same but fewer losses)
-            print(f"\n[Step 5] Evaluating model performance...")
             total_games = prev_solved + prev_lost + prev_draws
             if total_games == 0:
-                print(f"  ❌ REJECTING NEW MODEL (no games played)")
                 log.info('REJECTING NEW MODEL (no games played)')
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             else:
@@ -172,23 +169,13 @@ class Coach():
                 new_win_rate = new_solved / total_games if total_games > 0 else 0
                 improvement = new_win_rate - prev_win_rate
                 
-                print(f"  Previous model win rate: {prev_win_rate:.2%}")
-                print(f"  New model win rate: {new_win_rate:.2%}")
-                print(f"  Improvement: {improvement:+.2%}")
-                print(f"  Threshold: {(self.args.updateThreshold - 0.5):.2%}")
-                
                 if improvement >= (self.args.updateThreshold - 0.5):  # Adjust threshold for single-player
-                    print(f"  ✅ ACCEPTING NEW MODEL (improvement: {improvement:.2%})")
                     log.info('ACCEPTING NEW MODEL (improvement: %.2f%%)' % (improvement * 100))
                     self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
                     self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
-                    print(f"  Saved checkpoint: {self.getCheckpointFile(i)}")
                 else:
-                    print(f"  ❌ REJECTING NEW MODEL (improvement too small: {improvement:.2%})")
                     log.info('REJECTING NEW MODEL (improvement too small: %.2f%%)' % (improvement * 100))
                     self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
-            
-            print(f"\n{'='*60}\n")
 
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pth.tar'

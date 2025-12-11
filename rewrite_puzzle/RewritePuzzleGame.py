@@ -26,11 +26,17 @@ class RewritePuzzleGame(Game):
         self.goal_expr = goal_expr
         self.max_steps = max_steps
         self.max_expr_length = max_expr_length
-        self.num_rules = 8  # Number of rewrite rules (updated to match actual rule count)
+        self.num_rules = 5  # Number of rewrite rules (updated to match actual rule count)
         
         # Initialize the board
         self.board = RewritePuzzleBoard(start_expr, goal_expr, max_steps)
         
+    def reset_puzzle(self, start_expr, goal_expr):
+        """Reset the game with a new puzzle."""
+        self.start_expr = start_expr
+        self.goal_expr = goal_expr
+        self.board = RewritePuzzleBoard(start_expr, goal_expr, self.max_steps)
+
     def getInitBoard(self):
         """Returns initial board state as a numpy array."""
         return self._encode_state(self.board)

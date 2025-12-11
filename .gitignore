@@ -2,6 +2,8 @@
 .DS_Store
 
 /temp/
+/temp/rewrite_puzzle/
+/rewrite_puzzle/temp/rewrite_puzzle/
 /.project
 /.pydevproject
 

@@ -218,8 +218,6 @@ class RewriteRule:
                     node.right.is_leaf() and node.right.value == 1))
         elif pattern == 'a + b':
             return not node.is_leaf() and node.operator == '+'
-        elif pattern == 'a * b':
-            return not node.is_leaf() and node.operator == '*'
         elif pattern == 'a + (b + c)':
             # Match: a + (b + c) where right child is a nested addition
             # OR (a + b) + c where left child is a nested addition
@@ -235,6 +233,18 @@ class RewriteRule:
         elif pattern == 'a * (b + c)':
             return (not node.is_leaf() and node.operator == '*' and
                    not node.right.is_leaf() and node.right.operator == '+')
+        elif pattern == 'a * (b * c)':
+            # Match: a * (b * c) where right child is a nested multiplication
+            # OR (a * b) * c where left child is a nested multiplication
+            # This allows the rule to work in both directions
+            if not node.is_leaf() and node.operator == '*':
+                # Match a * (b * c): right child is nested multiplication
+                if not node.right.is_leaf() and node.right.operator == '*':
+                    return True
+                # Match (a * b) * c: left child is nested multiplication
+                if not node.left.is_leaf() and node.left.operator == '*':
+                    return True
+            return False
         return False
     
     def _build_replacement(self, node):
@@ -254,9 +264,6 @@ class RewriteRule:
         elif self.replacement == 'b + a':
             # Commutativity: a + b -> b + a
             return ExpressionNode(operator='+', left=node.right.copy(), right=node.left.copy())
-        elif self.replacement == 'b * a':
-            # Commutativity: a * b -> b * a
-            return ExpressionNode(operator='*', left=node.right.copy(), right=node.left.copy())
         elif self.replacement == '(a + b) + c':
             # Associativity: handle both directions
             # Case 1: a + (b + c) -> (a + b) + c (right child is nested)
@@ -282,6 +289,24 @@ class RewriteRule:
                 left=ExpressionNode(operator='*', left=node.left.copy(), right=node.right.left.copy()),
                 right=ExpressionNode(operator='*', left=node.left.copy(), right=node.right.right.copy())
             )
+        elif self.replacement == '(a * b) * c':
+            # Multiplicative associativity: handle both directions
+            # Case 1: a * (b * c) -> (a * b) * c (right child is nested)
+            if not node.right.is_leaf() and node.right.operator == '*':
+                return ExpressionNode(
+                    operator='*',
+                    left=ExpressionNode(operator='*', left=node.left.copy(), right=node.right.left.copy()),
+                    right=node.right.right.copy()
+                )
+            # Case 2: (a * b) * c -> a * (b * c) (left child is nested)
+            elif not node.left.is_leaf() and node.left.operator == '*':
+                return ExpressionNode(
+                    operator='*',
+                    left=node.left.left.copy(),
+                    right=ExpressionNode(operator='*', left=node.left.right.copy(), right=node.right.copy())
+                )
+            # Fallback (shouldn't happen if pattern matching is correct)
+            return node.copy()
         return node.copy()
 
 
@@ -382,47 +407,49 @@ class RewritePuzzleBoard:
         # # 0 + a -> a
         # rules.append(RewriteRule("add_zero_right", "0 + a", "a"))
         # # a * 1 -> a
-        rules.append(RewriteRule("mult_one_left", "a * 1", "a"))
+        # rules.append(RewriteRule("mult_one_left", "a * 1", "a"))
         # 1 * a -> a
-        rules.append(RewriteRule("mult_one_right", "1 * a", "a"))
+        # rules.append(RewriteRule("mult_one_right", "1 * a", "a"))
         # a + b -> b + a (commutativity)
         rules.append(RewriteRule("commute_add", "a + b", "b + a", is_commutative=True))
-        # a * b -> b * a (commutativity)
-        rules.append(RewriteRule("commute_mult", "a * b", "b * a", is_commutative=True))
         # a + (b + c) -> (a + b) + c (associativity)
         rules.append(RewriteRule("assoc_add", "a + (b + c)", "(a + b) + c"))
         # a * (b + c) -> a*b + a*c (distribution)
         rules.append(RewriteRule("distribute", "a * (b + c)", "a * b + a * c"))
-        # Rule: evaluate addition of leaves a + b -> (value)
+        # a * (b * c) -> (a * b) * c (multiplicative associativity)
+        rules.append(RewriteRule("assoc_mult", "a * (b * c)", "(a * b) * c"))
         
-        rules.append(
-            RewriteRule(
-                "eval_add_leaves",
-                "a + b",
-                None,
-                custom_match=lambda node: (
-                    node.operator == '+' and
-                    node.left is not None and node.right is not None and
-                    node.left.is_leaf() and node.right.is_leaf()
-                ),
-                custom_apply=lambda node, _: ExpressionNode(value=int(node.left.value) + int(node.right.value))
-            )
-        )
         
-        # Rule: evaluate multiplication of leaves a * b -> (value)
-        rules.append(
-            RewriteRule(
-                "eval_mult_leaves",
-                "a * b",
-                None,
-                custom_match=lambda node: (
-                    node.operator == '*' and
-                    node.left is not None and node.right is not None and
-                    node.left.is_leaf() and node.right.is_leaf()
-                ),
-                custom_apply=lambda node, _: ExpressionNode(value=int(node.left.value) * int(node.right.value))
-            )
-        )
+        
+        # Rule: evaluate addition of leaves a + b -> (value) 
+        # rules.append(
+        #     RewriteRule(
+        #         "eval_add_leaves",
+        #         "a + b",
+        #         None,
+        #         custom_match=lambda node: (
+        #             node.operator == '+' and
+        #             node.left is not None and node.right is not None and
+        #             node.left.is_leaf() and node.right.is_leaf()
+        #         ),
+        #         custom_apply=lambda node, _: ExpressionNode(value=int(node.left.value) + int(node.right.value))
+        #     )
+        # )
+        
+        # # Rule: evaluate multiplication of leaves a * b -> (value)
+        # rules.append(
+        #     RewriteRule(
+        #         "eval_mult_leaves",
+        #         "a * b",
+        #         None,
+        #         custom_match=lambda node: (
+        #             node.operator == '*' and
+        #             node.left is not None and node.right is not None and
+        #             node.left.is_leaf() and node.right.is_leaf()
+        #         ),
+        #         custom_apply=lambda node, _: ExpressionNode(value=int(node.left.value) * int(node.right.value))
+        #     )
+        # )
         return rules
     
     def get_all_valid_actions(self):

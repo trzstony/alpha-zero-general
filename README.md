@@ -69,3 +69,21 @@ Note: Chainer and TensorFlow v1 versions have been removed but can be found prio
 - [ ] Generate random initial (start_expr, goal_expr) pairs for the training data.
 - [ ] Handle the inverse expansion problem (5 = 2 + 3 or 1 + 4)
 - [ ] Teach model to undo. (yes or no; which step to go back to)
+
+### Generate initial (start_expr, goal_expr) pairs
+
+#### Rules:
+
+- a * (b + c) -> a * b + a * c
+- a + (b + c) -> (a + b) + c
+- a * (b * c) -> (a * b) * c
+- a + b -> b + a
+- a * b -> b * a
+
+#### All possible (start_expr, goal_expr) pairs
+
+Generation process:
+
+1. Generate a random expression tree with fixed depth.
+2. Mutate the start expression tree to get the goal expression tree. (Randomly apply one of the rules to the start expression tree each step; finite steps)
+
